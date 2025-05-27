@@ -1,7 +1,7 @@
 // src/app/page.tsx
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -9,12 +9,22 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Send, Bot, User, Sparkles, Loader2, Globe } from "lucide-react"
 import { ModelSelector } from "@/components/ModelSelector"
 
+// Premium GPT logo SVG (emerald accent)
+const GPTLogo = () => (
+  <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="16" cy="16" r="16" fill="#059669" />
+    <path d="M16 7.5c-4.7 0-8.5 3.8-8.5 8.5s3.8 8.5 8.5 8.5 8.5-3.8 8.5-8.5-3.8-8.5-8.5-8.5zm0 15.3c-3.8 0-6.8-3-6.8-6.8s3-6.8 6.8-6.8 6.8 3 6.8 6.8-3 6.8-6.8 6.8z" fill="#fff" />
+    <path d="M16 10.2c-3.2 0-5.8 2.6-5.8 5.8s2.6 5.8 5.8 5.8 5.8-2.6 5.8-5.8-2.6-5.8-5.8-5.8zm0 10.1c-2.4 0-4.3-1.9-4.3-4.3s1.9-4.3 4.3-4.3 4.3 1.9 4.3 4.3-1.9 4.3-4.3 4.3z" fill="#fff" />
+  </svg>
+)
+
 export default function Home() {
   const [input, setInput] = useState("")
   const [messages, setMessages] = useState<{ role: string; content: string; source?: string }[]>([])
   const [model, setModel] = useState("4o-mini")
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [displayedMessages, setDisplayedMessages] = useState<{ role: string; content: string; source?: string }[]>([])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -22,6 +32,29 @@ export default function Home() {
 
   useEffect(() => {
     scrollToBottom()
+  }, [displayedMessages])
+
+  // Typewriter animation for assistant messages
+  useEffect(() => {
+    if (messages.length === 0) {
+      setDisplayedMessages([])
+      return
+    }
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg.role !== "assistant") {
+      setDisplayedMessages(messages)
+      return
+    }
+    // Animate only the last assistant message
+    let i = 0
+    const prev = messages.slice(0, -1)
+    const interval = setInterval(() => {
+      i++
+      setDisplayedMessages([...prev, { ...lastMsg, content: lastMsg.content.slice(0, i) }])
+      if (i >= lastMsg.content.length) clearInterval(interval)
+    }, 8)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line
   }, [messages])
 
   const sendMessage = async () => {
@@ -82,7 +115,7 @@ export default function Home() {
 
       <div className="flex-1 max-w-4xl w-full mx-auto px-4 py-6 flex flex-col">
         <div className="flex-1 overflow-y-auto space-y-6 mb-6 scrollbar-thin scrollbar-thumb-[#2d2d2f] scrollbar-track-transparent">
-          {messages.map((msg, idx) => (
+          {displayedMessages.map((msg, idx) => (
             <div
               key={idx}
               className={`flex items-start gap-4 animate-fade-in ${
@@ -95,27 +128,36 @@ export default function Home() {
                     {msg.source === "serpapi" ? (
                       <Globe className="h-4 w-4" />
                     ) : (
-                      <Bot className="h-4 w-4" />
+                      <GPTLogo />
                     )}
                   </AvatarFallback>
                 </Avatar>
               )}
               <div
-                className={`max-w-full rounded-2xl px-4 py-2.5 shadow-lg transition-all duration-200 ${
+                className={`max-w-full rounded-2xl px-6 py-4 shadow-2xl transition-all duration-300 backdrop-blur-md ${
                   msg.role === "user"
-                    ? "bg-gradient-to-br from-[#0071e3] to-[#00a1ff] text-white"
+                    ? "bg-gradient-to-br from-[#23272a] to-[#111315] text-white border-none ring-0"
                     : msg.source === "serpapi"
-                      ? "bg-[#181f2a] text-[#f5f5f7] border border-[#0071e3] relative ring-2 ring-[#00a1ff]/40 ring-offset-2"
-                      : "bg-[#1a1a1a] text-[#f5f5f7] border border-[#2d2d2f] hover:border-[#0071e3]"
+                      ? "bg-[#181f1a]/90 text-[#f5f5f7] border-none relative ring-0 backdrop-blur-xl"
+                      : "bg-[#181f1a]/80 text-[#f5f5f7] border-none relative ring-0 backdrop-blur-xl"
                 }`}
               >
                 {msg.source === "serpapi" && (
                   <div className="flex flex-col items-start mb-1">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gradient-to-r from-[#0071e3] via-[#00a1ff] to-[#00e3ff] text-white shadow animate-pulse">
-                      <Globe className="h-3.5 w-3.5 mr-1" />
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-emerald-700 via-emerald-600 to-emerald-800 text-white shadow-lg border-2 border-emerald-800/60">
+                      <Globe className="h-4 w-4 mr-1" />
                       Live Search
                     </span>
-                    <div className="w-full border-b border-[#0071e3]/30 mt-1 mb-1" />
+                    <div className="w-full border-b border-emerald-800/30 mt-2 mb-2" />
+                  </div>
+                )}
+                {msg.source === "openai" && (
+                  <div className="flex flex-col items-start mb-1">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-emerald-700 via-emerald-600 to-emerald-800 text-white shadow-lg border-2 border-emerald-700/60 animate-fade-in">
+                      <GPTLogo />
+                      GPT
+                    </span>
+                    <div className="w-full border-b border-emerald-800/30 mt-2 mb-2" />
                   </div>
                 )}
                 <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
