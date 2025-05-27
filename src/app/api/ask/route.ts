@@ -1,76 +1,82 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { z } from 'zod'
+import axios from 'axios'
 
-// Input validation schema
-const requestSchema = z.object({
-  message: z.string().min(1, 'Message cannot be empty'),
-  model: z.string().optional(),
-})
-
-// Type for the validated request
-type ChatRequest = z.infer<typeof requestSchema>
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-})
-
-// Maximum message length to prevent abuse
-const MAX_MESSAGE_LENGTH = 4000
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! })
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
-    
-    // Validate request body
-    const result = requestSchema.safeParse(body)
-    if (!result.success) {
-      return NextResponse.json(
-        { error: 'Invalid request format', details: result.error.format() },
-        { status: 400 }
-      )
+    const { messages, model } = await req.json()
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return NextResponse.json({ error: 'No messages provided' }, { status: 400 })
     }
 
-    const { message, model } = result.data
+    // Optionally limit to last 15 messages for token safety
+    const limitedMessages = messages.slice(-15)
 
-    // Additional validation
-    if (message.length > MAX_MESSAGE_LENGTH) {
-      return NextResponse.json(
-        { error: `Message too long. Maximum length is ${MAX_MESSAGE_LENGTH} characters` },
-        { status: 400 }
-      )
-    }
+    // ✅ Only allow valid models
+    const allowedModels = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo']
+    const selectedModel = allowedModels.includes(model) ? model : 'gpt-3.5-turbo'
 
-    const chat = await openai.chat.completions.create({
-      model: model || 'gpt-3.5-turbo',
-      messages: [{ role: 'user', content: message }],
-      temperature: 0.7, // Add some creativity but not too much
-      max_tokens: 1000, // Prevent extremely long responses
+    // 🤖 Ask GPT
+    const gptRes = await openai.chat.completions.create({
+      model: selectedModel,
+      messages: limitedMessages,
     })
 
-    if (!chat.choices[0]?.message?.content) {
-      throw new Error('No response from OpenAI')
-    }
+    const reply = gptRes.choices[0]?.message?.content?.trim() || ''
 
-    return NextResponse.json({ 
-      reply: chat.choices[0].message.content,
-      model: chat.model,
-      usage: chat.usage
-    })
-  } catch (err: any) {
-    console.error('API error:', err)
-    
-    // Handle specific OpenAI errors
-    if (err instanceof OpenAI.APIError) {
-      return NextResponse.json(
-        { error: err.message, type: err.type },
-        { status: err.status || 500 }
-      )
-    }
+    // 🧠 Check if GPT sounds outdated
+    const fallbackTriggers = [
+      "don't have access to real-time",
+      "can't provide real-time",
+      "check the latest",
+      "after october 2023",
+      "do not have browsing capabilities",
+      "cannot access current events",
+      "currently unavailable",
+      "latest news",
+      "who won",
+      "today",
+      "yesterday"
+    ]
 
-    return NextResponse.json(
-      { error: 'An unexpected error occurred' },
-      { status: 500 }
+    const isOutdated = fallbackTriggers.some(trigger =>
+      reply.toLowerCase().includes(trigger) ||
+      messages[messages.length - 1].content.toLowerCase().includes(trigger) // force fallback for time-based questions
     )
+
+    // 🌐 Use SerpAPI if outdated
+    if (isOutdated) {
+      console.log('🔁 GPT fallback to SerpAPI for:', messages[messages.length - 1].content)
+
+      // Use the last user message for the SerpAPI query
+      const lastUserMsg = [...limitedMessages].reverse().find(m => m.role === "user")?.content || ""
+      const serpRes = await axios.get("https://serpapi.com/search", {
+        params: {
+          q: lastUserMsg,
+          api_key: process.env.SERP_API_KEY,
+          engine: "google",
+        },
+      })
+
+      const serpResult =
+        serpRes.data.answer_box?.answer ||
+        serpRes.data.answer_box?.snippet ||
+        serpRes.data.organic_results?.[0]?.snippet ||
+        "No real-time results found."
+
+      console.log("📡 SerpAPI Result:", serpResult)
+
+      return NextResponse.json({ reply: serpResult, source: 'serpapi' })
+    }
+
+    // ✅ GPT was enough
+    return NextResponse.json({ reply, source: 'gpt' })
+
+  } catch (err: any) {
+    console.error('❌ API error:', err)
+    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 })
   }
 }
